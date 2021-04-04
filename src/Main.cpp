@@ -214,12 +214,34 @@ WinMain(
     initVK(vk);
     INFO("Vulkan initialized");
 
+    // Init & execute compute shader.
+    VulkanBuffer computedBuffer;
     {
         VulkanPipeline pipeline;
         initVKPipelineCompute(
             vk,
             "cs",
             pipeline
+        );
+
+        createStorageBuffer(
+            vk.device,
+            vk.memories,
+            vk.computeQueueFamily,
+            32 * 32 * 4,
+            computedBuffer
+        );
+        void* result = mapMemory(vk.device, computedBuffer.handle, computedBuffer.memory);
+        u8* byte = (u8*)result;
+        for (int i = 0; i < 32 * 32 * 4; i++) {
+            *byte++ = 0xcc;
+        }
+        unMapMemory(vk.device, computedBuffer.memory);
+        updateStorageBuffer(
+            vk.device,
+            pipeline.descriptorSet,
+            0,
+            computedBuffer.handle
         );
 
         VkCommandPool pool = {};
@@ -266,24 +288,100 @@ WinMain(
             VK_PIPELINE_BIND_POINT_COMPUTE,
             pipeline.handle
         );
+        vkCmdBindDescriptorSets(
+            cmd,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            pipeline.layout,
+            0, 1, &pipeline.descriptorSet,
+            0, nullptr
+        );
 
         vkCmdDispatch(
             cmd,
-            32,
-            0,
-            0
+            1,
+            1,
+            1
         );
 
         vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo submit = {};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.pNext = nullptr;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &cmd;
+        submit.signalSemaphoreCount = 0;
+        submit.pSignalSemaphores = nullptr;
+        submit.waitSemaphoreCount = 0;
+        submit.pWaitSemaphores = 0;
+        submit.pWaitDstStageMask = nullptr;
+
+        vkQueueSubmit(
+            vk.computeQueue,
+            1,
+            &submit,
+            VK_NULL_HANDLE
+        );
+
+        // Might as well wait here since there will be nothing to display
+        // otherwise.
+        vkQueueWaitIdle(vk.computeQueue);
+    }
+
+    // Upload test texture.
+    void* result = mapMemory(vk.device, computedBuffer.handle, computedBuffer.memory);
+    u8* byte = (u8*)result;
+    for (int i = 0; i < 32 * 32 * 4; i++) {
+        INFO("%u", *byte++);
+    }
+    unMapMemory(vk.device, computedBuffer.memory);
+    VulkanSampler testSampler = {};
+    {
+        const u8 height = 32;
+        const u8 width = 32;
+        u8 data[width * height * 4];
+        u8* pixel = data;
+        for (int i = 0; i < width * height; i++) {
+            *pixel++ = 0xff;
+            *pixel++ = 0;
+            *pixel++ = 0xff;
+            *pixel++ = 0xff;
+        }
+        uploadTexture(
+            vk.device,
+            vk.memories,
+            vk.queue,
+            vk.queueFamily,
+            vk.cmdPoolTransient,
+            width,
+            height,
+            data,
+            width * height * 4,
+            testSampler
+        );
     }
 
     // Record command buffers.
     VkCommandBuffer* cmds = NULL;
     {
         float vertices[] = {
-            -1, 1, 0,
-            0, -1, 0,
+            -1, -1, 0,
+            0, 0,
+
             1, 1, 0,
+            1, 1,
+
+            -1, 1, 0,
+            0, 1,
+
+            -1, -1, 0,
+            0, 0,
+
+            1, -1, 0,
+            1, 0,
+
+            1, 1, 0,
+            1, 1
         };
 
         VulkanMesh mesh = {};
@@ -292,7 +390,7 @@ WinMain(
             vk.memories,
             vk.queueFamily,
             vertices,
-            9*sizeof(float),
+            (3+2)*6*sizeof(float),
             mesh
         );
 
@@ -301,6 +399,14 @@ WinMain(
             vk,
             "default",
             defaultPipeline
+        );
+
+        updateCombinedImageSampler(
+            vk.device,
+            defaultPipeline.descriptorSet,
+            0,
+            &testSampler,
+            1
         );
 
         u32 framebufferCount = vk.swap.images.size();
@@ -327,6 +433,11 @@ WinMain(
 
             vkCmdBeginRenderPass(cmd, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
+            vkCmdBindPipeline(
+                cmd,
+                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                defaultPipeline.handle
+            );
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(
                 cmd,
@@ -334,15 +445,17 @@ WinMain(
                 &mesh.vBuff.handle,
                 offsets
             );
-
-            vkCmdBindPipeline(
+            vkCmdBindDescriptorSets(
                 cmd,
                 VK_PIPELINE_BIND_POINT_GRAPHICS,
-                defaultPipeline.handle
+                defaultPipeline.layout,
+                0, 1,
+                &defaultPipeline.descriptorSet,
+                0, nullptr
             );
             vkCmdDraw(
                 cmd,
-                9,
+                6,
                 1,
                 0,
                 0
