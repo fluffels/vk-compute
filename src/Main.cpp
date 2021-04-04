@@ -29,7 +29,8 @@ float GetElapsed() {
     TIME()\
     fprintf(logFile, "[%s] ", level);\
     fprintf(logFile, __VA_ARGS__); \
-    fprintf(logFile, "\n");
+    fprintf(logFile, "\n"); \
+    fflush(logFile);
 
 #define FATAL(...)\
     LOG("FATAL", __VA_ARGS__);\
@@ -96,6 +97,7 @@ struct Uniforms {
 #include "jcwk/Win32/DirectInput.cpp"
 #include "jcwk/Win32/Controller.cpp"
 #include "jcwk/Win32/Mouse.cpp"
+#define VULKAN_COMPUTE
 #include "jcwk/Vulkan.cpp"
 #include <vulkan/vulkan_win32.h>
 #endif
@@ -211,6 +213,69 @@ WinMain(
     // Initialize Vulkan.
     initVK(vk);
     INFO("Vulkan initialized");
+
+    {
+        VulkanPipeline pipeline;
+        initVKPipelineCompute(
+            vk,
+            "cs",
+            pipeline
+        );
+
+        VkCommandPool pool = {};
+        {
+            VkCommandPoolCreateInfo create = {};
+            create.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            create.pNext = nullptr;
+            create.flags = 0;
+            create.queueFamilyIndex = vk.computeQueueFamily;
+            vkCreateCommandPool(
+                vk.device,
+                &create,
+                nullptr,
+                &pool
+            );
+        }
+
+        VkCommandBuffer cmd = {};
+        {
+            VkCommandBufferAllocateInfo allocate = {};
+            allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocate.pNext = nullptr;
+            allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate.commandPool = pool;
+            allocate.commandBufferCount = 1;
+            vkAllocateCommandBuffers(
+                vk.device,
+                &allocate,
+                &cmd
+            );
+        }
+
+        {
+            VkCommandBufferBeginInfo begin = {};
+            begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            begin.pNext = nullptr;
+            begin.flags = 0;
+            begin.pInheritanceInfo = nullptr;
+            vkBeginCommandBuffer(cmd, &begin);
+        }
+
+        vkCmdBindPipeline(
+            cmd,
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            pipeline.handle
+        );
+
+        vkCmdDispatch(
+            cmd,
+            32,
+            0,
+            0
+        );
+
+        vkEndCommandBuffer(cmd);
+    }
 
     // Record command buffers.
     VkCommandBuffer* cmds = NULL;
