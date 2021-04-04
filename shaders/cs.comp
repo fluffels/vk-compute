@@ -8,5 +8,5 @@ layout(set=0, binding=0) buffer OutputBuffer {
 
 void main() {
     uint gID = gl_GlobalInvocationID.x;
-    outputData[gID] = gID;
+    outputData.gIDs[gID] = gID;
 }
