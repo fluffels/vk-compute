@@ -1,5 +1,7 @@
 #version 450
 
+#include "classicnoise2D.glsl"
+
 layout(local_size_x=1, local_size_y=1) in;
 
 layout(set=0, binding=0) buffer OutputBuffer {
@@ -9,13 +11,18 @@ layout(set=0, binding=0) buffer OutputBuffer {
 // TODO: set width as a uniform
 const uint height = 1080;
 const uint width = 1920;
+const float freq = .1f;
+
+const uint midY = height / 2;
+const uint midX = width / 2;
 
 void main() {
     uint x = gl_GlobalInvocationID.x;
     uint y = gl_GlobalInvocationID.y;
+    vec2 P = vec2(x * freq, y * freq);
 
     uint r = 0;
-    uint g = uint(255 * (float(y) / height));
+    uint g = uint(cnoise(P) * 255);
     uint b = 0;
     uint a = 0xff;
 
