@@ -11,7 +11,6 @@ layout(set=0, binding=0) buffer OutputBuffer {
 // TODO: set width as a uniform
 const uint height = 1080;
 const uint width = 1920;
-const float freq = .1f;
 
 const uint midY = height / 2;
 const uint midX = width / 2;
@@ -19,10 +18,19 @@ const uint midX = width / 2;
 void main() {
     uint x = gl_GlobalInvocationID.x;
     uint y = gl_GlobalInvocationID.y;
-    vec2 P = vec2(x * freq, y * freq);
+    vec2 P = vec2(x / float(width), y / float(height));
+
+    float n = 0
+        + .5f * cnoise(P * 2)
+        + .25f * cnoise(P * 4)
+        + .125f * cnoise(P * 8)
+        + .0625f * cnoise(P * 16)
+        + .03125 * cnoise(P * 32)
+    ;
+    clamp(n, 0, 1);
 
     uint r = 0;
-    uint g = uint(cnoise(P) * 255);
+    uint g = uint(n * 255);
     uint b = 0;
     uint a = 0xff;
 
