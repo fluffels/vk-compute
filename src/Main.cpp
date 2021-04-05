@@ -216,6 +216,9 @@ WinMain(
 
     // Init & execute compute shader.
     VulkanBuffer computedBuffer;
+    const int computeWidth = 1920;
+    const int computeHeight = 1080;
+    const int computeSize = computeWidth * computeHeight * 4;
     {
         VulkanPipeline pipeline;
         initVKPipelineCompute(
@@ -224,19 +227,13 @@ WinMain(
             pipeline
         );
 
-        createStorageBuffer(
+        createComputeResultsBuffer(
             vk.device,
             vk.memories,
             vk.computeQueueFamily,
-            32 * 32 * 4,
+            computeSize,
             computedBuffer
         );
-        void* result = mapMemory(vk.device, computedBuffer.handle, computedBuffer.memory);
-        u8* byte = (u8*)result;
-        for (int i = 0; i < 32 * 32 * 4; i++) {
-            *byte++ = 0xcc;
-        }
-        unMapMemory(vk.device, computedBuffer.memory);
         updateStorageBuffer(
             vk.device,
             pipeline.descriptorSet,
@@ -249,7 +246,7 @@ WinMain(
             VkCommandPoolCreateInfo create = {};
             create.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
             create.pNext = nullptr;
-            create.flags = 0;
+            create.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             create.queueFamilyIndex = vk.computeQueueFamily;
             vkCreateCommandPool(
                 vk.device,
@@ -274,14 +271,12 @@ WinMain(
             );
         }
 
-        {
-            VkCommandBufferBeginInfo begin = {};
-            begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            begin.pNext = nullptr;
-            begin.flags = 0;
-            begin.pInheritanceInfo = nullptr;
-            vkBeginCommandBuffer(cmd, &begin);
-        }
+        VkCommandBufferBeginInfo begin = {};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.pNext = nullptr;
+        begin.flags = 0;
+        begin.pInheritanceInfo = nullptr;
+        vkBeginCommandBuffer(cmd, &begin);
 
         vkCmdBindPipeline(
             cmd,
@@ -298,8 +293,8 @@ WinMain(
 
         vkCmdDispatch(
             cmd,
-            1,
-            1,
+            computeWidth,
+            computeHeight,
             1
         );
 
@@ -326,40 +321,105 @@ WinMain(
         // Might as well wait here since there will be nothing to display
         // otherwise.
         vkQueueWaitIdle(vk.computeQueue);
+
+        // TODO: Record these and submit them in one.
+        VkBufferMemoryBarrier barrier = {};
+        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        barrier.pNext = nullptr;
+        barrier.buffer = computedBuffer.handle;
+        barrier.offset = 0;
+        barrier.size = VK_WHOLE_SIZE;
+        barrier.srcQueueFamilyIndex = vk.computeQueueFamily;
+        barrier.dstQueueFamilyIndex = vk.queueFamily;
+        barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barrier.dstAccessMask = 0;
+
+        vkBeginCommandBuffer(cmd, &begin);
+        vkCmdPipelineBarrier(
+            cmd,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+            0,
+            0, nullptr,
+            1, &barrier,
+            0, nullptr
+        );
+        vkEndCommandBuffer(cmd);
+
+        vkQueueSubmit(
+            vk.computeQueue,
+            1,
+            &submit,
+            VK_NULL_HANDLE
+        );
+
+        // Might as well wait here since there will be nothing to display
+        // otherwise.
+        vkQueueWaitIdle(vk.computeQueue);
+    }
+
+    {
+        VkBufferMemoryBarrier barrier = {};
+        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        barrier.pNext = nullptr;
+        barrier.buffer = computedBuffer.handle;
+        barrier.offset = 0;
+        barrier.size = VK_WHOLE_SIZE;
+        barrier.srcQueueFamilyIndex = vk.computeQueueFamily;
+        barrier.dstQueueFamilyIndex = vk.queueFamily;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        VkCommandBuffer cmd = {};
+        createCommandBuffers(
+            vk.device,
+            vk.cmdPoolTransient,
+            1,
+            &cmd
+        );
+        beginCommandBuffer(cmd, 0);
+        vkCmdPipelineBarrier(
+            cmd,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+            0,
+            0, nullptr,
+            1, &barrier,
+            0, nullptr
+        );
+        endCommandBuffer(cmd);
+
+        VkSubmitInfo submit = {};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.pNext = nullptr;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &cmd;
+        submit.signalSemaphoreCount = 0;
+        submit.pSignalSemaphores = nullptr;
+        submit.waitSemaphoreCount = 0;
+        submit.pWaitSemaphores = 0;
+        submit.pWaitDstStageMask = nullptr;
+
+        vkQueueSubmit(
+            vk.queue,
+            1,
+            &submit,
+            VK_NULL_HANDLE
+        );
     }
 
     // Upload test texture.
-    void* result = mapMemory(vk.device, computedBuffer.handle, computedBuffer.memory);
-    u8* byte = (u8*)result;
-    for (int i = 0; i < 32 * 32 * 4; i++) {
-        INFO("%u", *byte++);
-    }
-    unMapMemory(vk.device, computedBuffer.memory);
-    VulkanSampler testSampler = {};
-    {
-        const u8 height = 32;
-        const u8 width = 32;
-        u8 data[width * height * 4];
-        u8* pixel = data;
-        for (int i = 0; i < width * height; i++) {
-            *pixel++ = 0xff;
-            *pixel++ = 0;
-            *pixel++ = 0xff;
-            *pixel++ = 0xff;
-        }
-        uploadTexture(
-            vk.device,
-            vk.memories,
-            vk.queue,
-            vk.queueFamily,
-            vk.cmdPoolTransient,
-            width,
-            height,
-            data,
-            width * height * 4,
-            testSampler
-        );
-    }
+    VulkanSampler computedSampler = {};
+    createTextureFromBuffer(
+        vk.device,
+        vk.memories,
+        vk.queue,
+        vk.queueFamily,
+        vk.cmdPoolTransient,
+        32, 32, 32 * 32 * 4,
+        computedBuffer,
+        computedSampler
+    );
 
     // Record command buffers.
     VkCommandBuffer* cmds = NULL;
@@ -405,7 +465,7 @@ WinMain(
             vk.device,
             defaultPipeline.descriptorSet,
             0,
-            &testSampler,
+            &computedSampler,
             1
         );
 
