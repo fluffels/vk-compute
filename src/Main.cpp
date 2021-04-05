@@ -416,7 +416,7 @@ WinMain(
         vk.queue,
         vk.queueFamily,
         vk.cmdPoolTransient,
-        32, 32, 32 * 32 * 4,
+        computeWidth, computeHeight, computeSize,
         computedBuffer,
         computedSampler
     );

@@ -6,8 +6,21 @@ layout(set=0, binding=0) buffer OutputBuffer {
     uint gIDs[];
 } outputData;
 
+// TODO: set width as a uniform
+const uint height = 1080;
+const uint width = 1920;
+
 void main() {
-    // TODO: set width as a uniform
-    uint idx = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * 1920;
-    outputData.gIDs[idx] = 0x00ffff00;
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+
+    uint r = 0;
+    uint g = uint(255 * (float(y) / height));
+    uint b = 0;
+    uint a = 0xff;
+
+    uint c = (a << 24) | (b << 16) | (g << 8) | r;
+
+    uint idx = x + y * width;
+    outputData.gIDs[idx] = c;
 }
